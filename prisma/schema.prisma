@@ -12,3 +12,103 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum UserRole {
+  CUSTOMER
+  PROVIDER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+  
+enum OrderStatus {
+  PLACED
+  DELIVERED
+  CANCELLED
+}
+
+model ProviderProfile {
+  id         String     @id @default(uuid())
+  // userId      String    @unique 
+  restaurantName    String     @db.Text
+  description  String?     @db.Text
+  address  String?
+  phone  String?
+  meals      Meal[]
+  orders Order[]
+  createdAt  DateTime   @default(now())
+}
+
+model Category {
+  id         String     @id @default(uuid())
+  name      String     @db.VarChar(225)
+  meals      Meal[]
+  createdAt  DateTime   @default(now())
+}
+
+model Meal {
+  id         String     @id @default(uuid())
+  title      String     @db.VarChar(225)
+  description    String?     @db.Text
+  price Decimal @db.Decimal(10,2)
+  image       String?
+  categoryId   String 
+  providerId   String 
+  provider ProviderProfile @relation(fields: [providerId], references: [id])
+  category Category        @relation(fields: [categoryId], references: [id])
+  isAvailable Boolean    @default(true)
+  orderItems OrderItem[] 
+  reviews    Review[] // Added relation to OrderItem
+  createdAt  DateTime   @default(now())
+
+  @@index([providerId])
+  @@index([categoryId])
+}
+
+model Order {
+  id         String     @id @default(uuid())
+  // customerId String
+  providerId String     
+  provider  ProviderProfile @relation(fields: [providerId], references: [id])    
+  totalPrice  Decimal @db.Decimal(10,2)
+  deliveryAddress String   
+  status     OrderStatus @default(PLACED)
+  items    OrderItem[]
+  reviews  Review[]
+  createdAt  DateTime   @default(now())
+
+  @@index([providerId])
+}
+
+model OrderItem {
+  id       String   @id @default(uuid())
+  orderId  String
+  mealId   String
+  price    Decimal  @db.Decimal(10,2)
+  quantity Int
+
+  order Order @relation(fields: [orderId], references: [id])
+  meal  Meal  @relation(fields: [mealId], references: [id])
+
+  @@unique([orderId, mealId])
+  @@index([orderId])
+  @@index([mealId])
+}
+
+
+model Review {
+  id      String @id @default(uuid())
+  rating  Int
+  comment String?
+
+  mealId  String
+  orderId String
+
+  meal  Meal  @relation(fields: [mealId], references: [id])
+  order Order @relation(fields: [orderId], references: [id])
+  @@unique([orderId, mealId])
+  createdAt DateTime @default(now())
+}
