@@ -40,9 +40,37 @@ const createProvider = async (
   }
 };
 
-const getProvider = async (req, res, next) => {};
+export const getProvider = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const provider = await ProviderService.getProvider(req.params.id as string);
+    res.status(200).json({ success: true, data: provider });
+  } catch (error: any) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
 
-const getAllProviders = async (req, res, next) => {};
+const getAllProviders = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const providers = await ProviderService.getAllProviders();
+    res.status(200).json({ success: true, data: providers });
+  } catch (error: any) {
+    next(error);
+  }
+};
 
 export const ProviderController = {
   createProvider,

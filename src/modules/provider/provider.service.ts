@@ -28,6 +28,40 @@ export const createProviderProfile = async (data: CreateProviderInput) => {
   });
 };
 
+const getProvider = async (id: string) => {
+  const provider = await prisma.providerProfile.findUnique({
+    where: { id },
+    include: {
+      meals: true,
+      orders: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+  if (!provider) {
+    const error: any = new Error("Provider not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return provider;
+};
+
+const getAllProviders = async () => {
+  return prisma.providerProfile.findMany({
+    include: { meals: true },
+    orderBy: { createdAt: "desc" },
+  });
+};
+
 export const ProviderService = {
   createProviderProfile,
+  getProvider,
+  getAllProviders,
 };
