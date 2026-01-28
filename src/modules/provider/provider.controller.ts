@@ -1,0 +1,51 @@
+import { NextFunction, Request, Response } from "express";
+import { ProviderService } from "./provider.service";
+
+const createProvider = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { restaurantName, description, address, phone } = req.body;
+
+    if (!restaurantName || !restaurantName.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Restaurant name is required",
+      });
+    }
+
+    const provider = await ProviderService.createProviderProfile({
+      restaurantName: restaurantName.trim(),
+      description,
+      address,
+      phone,
+      userId: req.user!.id, // BetterAuth user
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Provider profile created successfully",
+      data: provider,
+    });
+  } catch (error: any) {
+    if (error.message.includes("already exists")) {
+      return res.status(409).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
+const getProvider = async (req, res, next) => {};
+
+const getAllProviders = async (req, res, next) => {};
+
+export const ProviderController = {
+  createProvider,
+  getProvider,
+  getAllProviders,
+};

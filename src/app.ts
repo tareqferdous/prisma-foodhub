@@ -4,6 +4,7 @@ import express, { Application } from "express";
 import { auth } from "./lib/auth";
 import { CategoryRoutes } from "./modules/category/category.route";
 import { mealRouter } from "./modules/meal/meal.router";
+import { ProviderRoutes } from "./modules/provider/provider.route";
 
 const app: Application = express();
 
@@ -19,6 +20,8 @@ app.use(
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
 app.use("/api/categories", CategoryRoutes);
+
+app.use("/api/providers", ProviderRoutes);
 
 app.use("/meals", mealRouter);
 
