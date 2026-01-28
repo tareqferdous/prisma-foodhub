@@ -2,6 +2,7 @@ import { toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express, { Application } from "express";
 import { auth } from "./lib/auth";
+import { CategoryRoutes } from "./modules/category/category.route";
 import { mealRouter } from "./modules/meal/meal.router";
 
 const app: Application = express();
@@ -16,6 +17,8 @@ app.use(
 );
 
 app.all("/api/auth/*splat", toNodeHandler(auth));
+
+app.use("/api/categories", CategoryRoutes);
 
 app.use("/meals", mealRouter);
 

@@ -47,7 +47,7 @@ user         User     @relation(fields: [userId], references: [id])
 
 model Category {
   id        String   @id @default(uuid())
-  name      String   @db.VarChar(225)
+  name      String   @unique @db.VarChar(100)
   meals     Meal[]
   createdAt DateTime @default(now())
 }
