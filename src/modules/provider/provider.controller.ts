@@ -21,7 +21,7 @@ const createProvider = async (
       description,
       address,
       phone,
-      userId: req.user!.id, // BetterAuth user
+      userId: req.user!.id,
     });
 
     res.status(201).json({

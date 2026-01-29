@@ -5,6 +5,7 @@ import { auth } from "./lib/auth";
 import errorHandler from "./middlewares/globalErrorHandler";
 import { CategoryRoutes } from "./modules/category/category.route";
 import { mealRouter } from "./modules/meal/meal.router";
+import { orderRouter } from "./modules/order/order.route";
 import { ProviderRoutes } from "./modules/provider/provider.route";
 
 const app: Application = express();
@@ -25,6 +26,8 @@ app.use("/api/categories", CategoryRoutes);
 app.use("/api/providers", ProviderRoutes);
 
 app.use("/api/meals", mealRouter);
+
+app.use("/api/orders", orderRouter);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");
