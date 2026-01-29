@@ -23,7 +23,7 @@ app.use("/api/categories", CategoryRoutes);
 
 app.use("/api/providers", ProviderRoutes);
 
-app.use("/meals", mealRouter);
+app.use("/api/meals", mealRouter);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");
