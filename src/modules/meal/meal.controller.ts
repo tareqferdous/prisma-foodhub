@@ -63,8 +63,43 @@ const getMeal = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
+const updateMeal = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user!.id;
+    const { mealId } = req.params;
+    const data = req.body;
+
+    const meal = await mealService.updateMeal(userId, mealId as string, data);
+
+    res.status(200).json({
+      success: true,
+      data: meal,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteMeal = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user!.id;
+    const { mealId } = req.params;
+
+    await mealService.deleteMeal(userId, mealId);
+
+    res.status(200).json({
+      success: true,
+      message: "Meal removed successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const mealController = {
   createMeal,
   getAllMeals,
   getMeal,
+  updateMeal,
+  deleteMeal,
 };

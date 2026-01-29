@@ -122,8 +122,73 @@ const getMealById = async (id: string) => {
   return meal;
 };
 
+const updateMeal = async (userId: string, mealId: string, data: any) => {
+  const provider = await prisma.providerProfile.findUnique({
+    where: { userId },
+  });
+
+  if (!provider) {
+    throw new Error("Provider profile not found");
+  }
+
+  const meal = await prisma.meal.findFirst({
+    where: {
+      id: mealId,
+      providerId: provider.id,
+    },
+  });
+
+  if (!meal) {
+    throw new Error("Meal not found or access denied");
+  }
+
+  return await prisma.meal.update({
+    where: { id: mealId },
+    data: {
+      ...(data.title && { title: data.title }),
+      ...(data.description && { description: data.description }),
+      ...(data.price && { price: data.price }),
+      ...(data.image && { image: data.image }),
+      ...(data.categoryId && { categoryId: data.categoryId }),
+      ...(data.isAvailable !== undefined && {
+        isAvailable: data.isAvailable,
+      }),
+    },
+  });
+};
+
+const deleteMeal = async (userId: string, mealId: string) => {
+  const provider = await prisma.providerProfile.findUnique({
+    where: { userId },
+  });
+
+  if (!provider) {
+    throw new Error("Provider profile not found");
+  }
+
+  const meal = await prisma.meal.findFirst({
+    where: {
+      id: mealId,
+      providerId: provider.id,
+    },
+  });
+
+  if (!meal) {
+    throw new Error("Meal not found or access denied");
+  }
+
+  await prisma.meal.update({
+    where: { id: mealId },
+    data: {
+      isAvailable: false,
+    },
+  });
+};
+
 export const mealService = {
   createMeal,
   getMeals,
   getMealById,
+  updateMeal,
+  deleteMeal,
 };
