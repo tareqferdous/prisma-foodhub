@@ -14,4 +14,10 @@ router.get(
 
 router.get("/me", auth(UserRole.CUSTOMER), orderController.getMyOrders);
 
+router.patch(
+  "/:id/status",
+  auth(UserRole.PROVIDER),
+  orderController.updateOrderStatus,
+);
+
 export const orderRouter: Router = router;

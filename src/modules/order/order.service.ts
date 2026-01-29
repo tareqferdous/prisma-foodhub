@@ -89,8 +89,32 @@ const getCustomerOrders = async (customerId: string) => {
   });
 };
 
+const updateOrderStatus = async (
+  orderId: string,
+  status: OrderStatus,
+  providerId: string,
+) => {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+  });
+
+  if (!order) {
+    throw new Error("Order not found");
+  }
+
+  if (order.providerId !== providerId) {
+    throw new Error("Forbidden: Not your order");
+  }
+
+  return prisma.order.update({
+    where: { id: orderId },
+    data: { status },
+  });
+};
+
 export const orderService = {
   createOrder,
   getProviderOrders,
   getCustomerOrders,
+  updateOrderStatus,
 };

@@ -57,8 +57,40 @@ const getMyOrders = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
+const updateOrderStatus = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const provider = await prisma.providerProfile.findUnique({
+      where: { userId: req.user!.id },
+    });
+
+    if (!provider) {
+      return res.status(403).json({ message: "Provider profile not found" });
+    }
+
+    const updateOrderStatus = await orderService.updateOrderStatus(
+      id as string,
+      status,
+      provider.id,
+    );
+    res.status(200).json({
+      success: true,
+      data: updateOrderStatus,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const orderController = {
   createOrder,
   getProviderOrders,
   getMyOrders,
+  updateOrderStatus,
 };
