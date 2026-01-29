@@ -39,16 +39,32 @@ const createMeal = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
-const getMeals = async (req: Request, res: Response, next: NextFunction) => {
+const getAllMeals = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const meals = await mealService.getMeals(req.query);
+    const meals = await mealService.getMeals(req.query as any);
     res.status(200).json({ success: true, data: meals });
   } catch (err) {
     next(err);
   }
 };
 
+const getMeal = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const meal = await mealService.getMealById(req.params.id as string);
+    res.status(200).json({ success: true, data: meal });
+  } catch (error: any) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
 export const mealController = {
   createMeal,
-  getMeals,
+  getAllMeals,
+  getMeal,
 };

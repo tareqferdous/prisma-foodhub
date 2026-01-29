@@ -30,6 +30,12 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum DietaryType {
+  VEG
+  NON_VEG
+  HALAL
+}
+
 model ProviderProfile {
   id             String   @id @default(uuid())
   userId      String    @unique 
@@ -58,6 +64,7 @@ model Meal {
   description String?         @db.Text
   price       Decimal         @db.Decimal(10, 2)
   image       String?
+  dietaryType DietaryType
   categoryId  String
   providerId  String
   provider    ProviderProfile @relation(fields: [providerId], references: [id])

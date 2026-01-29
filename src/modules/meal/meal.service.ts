@@ -1,3 +1,4 @@
+import paginationSortingHelper from "../../helpers/paginationSortingHelper";
 import { prisma } from "../../lib/prisma";
 
 interface GetMealsQuery {
@@ -6,6 +7,11 @@ interface GetMealsQuery {
   minPrice?: string;
   maxPrice?: string;
   search?: string;
+  page: number;
+  limit: number;
+  skip: number;
+  sortBy: string;
+  sortOrder: string;
 }
 
 type DietaryType = "VEG" | "NON_VEG" | "HALAL";
@@ -21,7 +27,6 @@ interface CreateMealInput {
 }
 
 const createMeal = async (data: CreateMealInput) => {
-  console.log("data", data);
   const category = await prisma.category.findUnique({
     where: { id: data.categoryId },
   });
@@ -47,6 +52,8 @@ const createMeal = async (data: CreateMealInput) => {
 
 const getMeals = async (query: GetMealsQuery) => {
   const { cuisine, dietary, minPrice, maxPrice, search } = query;
+  const { page, limit, skip, sortBy, sortOrder } =
+    paginationSortingHelper(query);
 
   const where: any = {
     isAvailable: true,
@@ -78,7 +85,7 @@ const getMeals = async (query: GetMealsQuery) => {
     if (maxPrice) where.price.lte = maxPrice;
   }
 
-  return prisma.meal.findMany({
+  const meals = await prisma.meal.findMany({
     where,
     include: {
       category: true,
@@ -86,9 +93,37 @@ const getMeals = async (query: GetMealsQuery) => {
     },
     orderBy: { createdAt: "desc" },
   });
+
+  const total = await prisma.meal.count({
+    where,
+  });
+
+  return {
+    meals,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+};
+
+const getMealById = async (id: string) => {
+  const meal = await prisma.meal.findUnique({
+    where: { id },
+    include: { category: true, provider: true, reviews: true },
+  });
+  if (!meal) {
+    const error: any = new Error("Meal not found");
+    error.statusCode = 404;
+    throw error;
+  }
+  return meal;
 };
 
 export const mealService = {
   createMeal,
   getMeals,
+  getMealById,
 };
