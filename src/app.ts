@@ -2,6 +2,7 @@ import { toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express, { Application } from "express";
 import { auth } from "./lib/auth";
+import errorHandler from "./middlewares/globalErrorHandler";
 import { CategoryRoutes } from "./modules/category/category.route";
 import { mealRouter } from "./modules/meal/meal.router";
 import { ProviderRoutes } from "./modules/provider/provider.route";
@@ -28,5 +29,7 @@ app.use("/api/meals", mealRouter);
 app.get("/", (req, res) => {
   res.send("Hello, World!");
 });
+
+app.use(errorHandler);
 
 export default app;
