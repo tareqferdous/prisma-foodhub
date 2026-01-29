@@ -12,4 +12,6 @@ router.get(
   orderController.getProviderOrders,
 );
 
+router.get("/me", auth(UserRole.CUSTOMER), orderController.getMyOrders);
+
 export const orderRouter: Router = router;
