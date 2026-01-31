@@ -3,6 +3,7 @@ import cors from "cors";
 import express, { Application } from "express";
 import { auth } from "./lib/auth";
 import errorHandler from "./middlewares/globalErrorHandler";
+import { AdminRoutes } from "./modules/admin/admin.route";
 import { CategoryRoutes } from "./modules/category/category.route";
 import { mealRouter } from "./modules/meal/meal.router";
 import { orderRouter } from "./modules/order/order.route";
@@ -31,6 +32,8 @@ app.use("/api/meals", mealRouter);
 app.use("/api/orders", orderRouter);
 
 app.use("/api/reviews", reviewRoutes);
+
+app.use("/api/admin", AdminRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");
