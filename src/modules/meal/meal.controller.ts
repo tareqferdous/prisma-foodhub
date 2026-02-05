@@ -66,10 +66,9 @@ const getMeal = async (req: Request, res: Response, next: NextFunction) => {
 const updateMeal = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
-    const { mealId } = req.params;
     const data = req.body;
 
-    const meal = await mealService.updateMeal(userId, mealId as string, data);
+    const meal = await mealService.updateMeal(userId, data);
 
     res.status(200).json({
       success: true,
@@ -85,7 +84,7 @@ const deleteMeal = async (req: Request, res: Response, next: NextFunction) => {
     const userId = req.user!.id;
     const { mealId } = req.params;
 
-    await mealService.deleteMeal(userId, mealId);
+    await mealService.deleteMeal(userId, mealId as string);
 
     res.status(200).json({
       success: true,

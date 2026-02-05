@@ -7,6 +7,7 @@ import { AdminRoutes } from "./modules/admin/admin.route";
 import { CategoryRoutes } from "./modules/category/category.route";
 import { mealRouter } from "./modules/meal/meal.router";
 import { orderRouter } from "./modules/order/order.route";
+import { ProfileRoutes } from "./modules/profile/profile.route";
 import { ProviderRoutes } from "./modules/provider/provider.route";
 import { reviewRoutes } from "./modules/review/review.route";
 
@@ -34,6 +35,8 @@ app.use("/api/orders", orderRouter);
 app.use("/api/reviews", reviewRoutes);
 
 app.use("/api/admin", AdminRoutes);
+
+app.use("/api/profile", ProfileRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");

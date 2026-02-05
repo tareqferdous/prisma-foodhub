@@ -122,7 +122,7 @@ const getMealById = async (id: string) => {
   return meal;
 };
 
-const updateMeal = async (userId: string, mealId: string, data: any) => {
+const updateMeal = async (userId: string, data: any) => {
   const provider = await prisma.providerProfile.findUnique({
     where: { userId },
   });
@@ -133,7 +133,7 @@ const updateMeal = async (userId: string, mealId: string, data: any) => {
 
   const meal = await prisma.meal.findFirst({
     where: {
-      id: mealId,
+      id: data.id,
       providerId: provider.id,
     },
   });
@@ -143,7 +143,7 @@ const updateMeal = async (userId: string, mealId: string, data: any) => {
   }
 
   return await prisma.meal.update({
-    where: { id: mealId },
+    where: { id: data.id },
     data: {
       ...(data.title && { title: data.title }),
       ...(data.description && { description: data.description }),

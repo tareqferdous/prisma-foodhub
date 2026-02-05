@@ -86,6 +86,23 @@ const deleteCategory = async (
   }
 };
 
+const getAdminDashboard = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const stats = await adminService.getAdminStats();
+
+    res.status(200).json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const adminController = {
   getAllUsers,
   updateUserStatus,
@@ -93,4 +110,5 @@ export const adminController = {
   getAllCategories,
   updateCategory,
   deleteCategory,
+  getAdminDashboard,
 };

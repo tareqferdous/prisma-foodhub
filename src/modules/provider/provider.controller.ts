@@ -40,6 +40,43 @@ const createProvider = async (
   }
 };
 
+const updateProvider = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { restaurantName, description, address, phone } = req.body;
+    const provider = await ProviderService.updateProviderProfile(req.user!.id, {
+      restaurantName,
+      description,
+      address,
+      phone,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Provider profile updated successfully",
+      data: provider,
+    });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
+const getProviderProfile = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const provider = await ProviderService.getProviderByUserId(req.user!.id);
+    res.status(200).json({ success: true, data: provider });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
 export const getProvider = async (
   req: Request,
   res: Response,
@@ -72,8 +109,30 @@ const getAllProviders = async (
   }
 };
 
+const getProviderDashboard = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const userId = req.user!.id;
+
+    const data = await ProviderService.getProviderDashboard(userId);
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const ProviderController = {
   createProvider,
   getProvider,
   getAllProviders,
+  updateProvider,
+  getProviderProfile,
+  getProviderDashboard,
 };

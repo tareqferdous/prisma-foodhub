@@ -4,6 +4,9 @@ import { adminController } from "./admin.controller";
 
 const router = Router();
 
+//dashboard statestics route
+router.get("/", auth(UserRole.ADMIN), adminController.getAdminDashboard);
+
 // user management routes
 router.get("/users", auth(UserRole.ADMIN), adminController.getAllUsers);
 router.patch(
