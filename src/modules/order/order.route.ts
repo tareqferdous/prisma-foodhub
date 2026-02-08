@@ -14,6 +14,8 @@ router.get(
 
 router.get("/me", auth(UserRole.CUSTOMER), orderController.getMyOrders);
 
+router.get("/:id", auth(UserRole.CUSTOMER), orderController.getOrderById);
+
 router.patch(
   "/:id/status",
   auth(UserRole.PROVIDER),

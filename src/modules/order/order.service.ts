@@ -89,6 +89,42 @@ const getCustomerOrders = async (customerId: string) => {
   });
 };
 
+const getOrderById = async (orderId: string, customerId: string) => {
+  const order = await prisma.order.findFirst({
+    where: {
+      id: orderId,
+      customerId,
+    },
+    include: {
+      provider: {
+        select: {
+          id: true,
+          restaurantName: true,
+        },
+      },
+      items: {
+        include: {
+          meal: {
+            select: {
+              id: true,
+              title: true,
+              image: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    const error: any = new Error("Order not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return order;
+};
+
 const updateOrderStatus = async (
   orderId: string,
   status: OrderStatus,
@@ -117,4 +153,5 @@ export const orderService = {
   getProviderOrders,
   getCustomerOrders,
   updateOrderStatus,
+  getOrderById,
 };

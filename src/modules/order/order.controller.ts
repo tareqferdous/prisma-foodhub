@@ -57,6 +57,26 @@ const getMyOrders = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
+const getOrderById = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const customerId = req.user!.id;
+    const { id } = req.params;
+
+    const order = await orderService.getOrderById(id as string, customerId);
+
+    res.status(200).json({
+      success: true,
+      data: order,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const updateOrderStatus = async (
   req: Request,
   res: Response,
@@ -92,5 +112,6 @@ export const orderController = {
   createOrder,
   getProviderOrders,
   getMyOrders,
+  getOrderById,
   updateOrderStatus,
 };

@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma";
 
-export const createCategory = async (name: string) => {
+const createCategory = async (name: string) => {
   const existing = await prisma.category.findUnique({
     where: { name },
   });

@@ -90,6 +90,12 @@ const getMeals = async (query: GetMealsQuery) => {
     include: {
       category: true,
       reviews: true,
+      provider: {
+        select: {
+          id: true,
+          restaurantName: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
