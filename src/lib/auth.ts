@@ -6,21 +6,43 @@ import { prisma } from "./prisma";
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
-  secure: false, // Use true for port 465, false for port 587
+  secure: false,
   auth: {
     user: process.env.APP_USER,
     pass: process.env.APP_PASS,
   },
 });
 
+const isProduction = process.env.NODE_ENV === "production";
+
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
-    provider: "postgresql", // or "mysql", "postgresql", ...etc
+    provider: "postgresql",
   }),
-  trustedOrigins: [process.env.APP_URL!],
-  cookies: {
-    secure: true,
-    sameSite: "none",
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://foodhub-frontend-eosin.vercel.app",
+  ],
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60,
+    },
+  },
+
+  advanced: {
+    cookiePrefix: "better-auth",
+    useSecureCookies: true,
+    crossSubDomainCookies: {
+      enabled: false,
+    },
+    cookieOptions: {
+      sameSite: "none",
+      secure: true,
+      httpOnly: true,
+      path: "/",
+    },
+    disableCSRFCheck: false,
   },
   user: {
     additionalFields: {
@@ -47,7 +69,10 @@ export const auth = betterAuth({
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url, token }, request) => {
       try {
-        const verificationUrl = `${process.env.APP_URL}/verify-email?token=${token}`;
+        const baseUrl = isProduction
+          ? process.env.PROD_APP_URL
+          : process.env.APP_URL;
+        const verificationUrl = `${baseUrl}/verify-email?token=${token}`;
         const info = await transporter.sendMail({
           from: '"FoodHub" <foodhub@ph.com>',
           to: user.email,

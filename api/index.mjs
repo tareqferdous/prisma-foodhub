@@ -263,7 +263,6 @@ var transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
   secure: false,
-  // Use true for port 465, false for port 587
   auth: {
     user: process.env.APP_USER,
     pass: process.env.APP_PASS
@@ -272,9 +271,27 @@ var transporter = nodemailer.createTransport({
 var auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql"
-    // or "mysql", "postgresql", ...etc
   }),
-  trustedOrigins: [process.env.APP_URL],
+  trustedOrigins: [process.env.APP_URL, process.env.PROD_APP_URL],
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60
+    }
+  },
+  advanced: {
+    cookiePrefix: "better-auth",
+    useSecureCookies: false,
+    // useSecureCookies: process.env.NODE_ENV === "production",
+    crossSubDomainCookies: {
+      enabled: false
+    },
+    cookieOptions: {
+      sameSite: "lax",
+      secure: false
+    },
+    disableCSRFCheck: true
+  },
   user: {
     additionalFields: {
       role: {
@@ -1758,11 +1775,22 @@ var reviewRoutes = router7;
 // src/app.ts
 var app = express3();
 app.use(express3.json());
+var allowedOrigins = [
+  process.env.APP_URL || "http://localhost:3000",
+  process.env.PROD_APP_URL
+].filter(Boolean);
 app.use(
   cors({
-    origin: process.env.APP_URL || "http://localhost:3000",
-    // client side url
-    credentials: true
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isAllowed = allowedOrigins.includes(origin) || /^https:\/\/.*\.vercel\.app$/.test(origin);
+      if (isAllowed) return callback(null, true);
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+    exposedHeaders: ["Set-Cookie"]
   })
 );
 app.all("/api/auth/*splat", toNodeHandler(auth));
@@ -1777,6 +1805,7 @@ app.get("/", (req, res) => {
   res.send("Hello, World!");
 });
 app.use(globalErrorHandler_default);
+app.set("trust proxy", 1);
 var app_default = app;
 
 // src/index.ts

@@ -15,10 +15,27 @@ const app: Application = express();
 
 app.use(express.json());
 
+const allowedOrigins = [
+  process.env.APP_URL || "http://localhost:3000",
+  process.env.PROD_APP_URL,
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.APP_URL || "http://localhost:3000", // client side url
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        /^https:\/\/.*\.vercel\.app$/.test(origin); // Vercel preview
+
+      if (isAllowed) return callback(null, true);
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+    exposedHeaders: ["Set-Cookie"],
   }),
 );
 
@@ -43,5 +60,7 @@ app.get("/", (req, res) => {
 });
 
 app.use(errorHandler);
+
+app.set("trust proxy", 1);
 
 export default app;
