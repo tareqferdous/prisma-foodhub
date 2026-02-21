@@ -268,11 +268,15 @@ var transporter = nodemailer.createTransport({
     pass: process.env.APP_PASS
   }
 });
+var isProduction = process.env.NODE_ENV === "production";
 var auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql"
   }),
-  trustedOrigins: [process.env.APP_URL, process.env.PROD_APP_URL],
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://foodhub-frontend-eosin.vercel.app"
+  ],
   session: {
     cookieCache: {
       enabled: true,
@@ -281,16 +285,17 @@ var auth = betterAuth({
   },
   advanced: {
     cookiePrefix: "better-auth",
-    useSecureCookies: false,
-    // useSecureCookies: process.env.NODE_ENV === "production",
+    useSecureCookies: true,
     crossSubDomainCookies: {
       enabled: false
     },
     cookieOptions: {
-      sameSite: "lax",
-      secure: false
+      sameSite: "none",
+      secure: true,
+      httpOnly: true,
+      path: "/"
     },
-    disableCSRFCheck: true
+    disableCSRFCheck: false
   },
   user: {
     additionalFields: {
@@ -309,14 +314,15 @@ var auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     autoSignIn: false,
-    requireEmailVerification: true
+    requireEmailVerification: false
   },
   emailVerification: {
-    sendOnSignUp: true,
+    sendOnSignUp: false,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url, token }, request) => {
       try {
-        const verificationUrl = `${process.env.APP_URL}/verify-email?token=${token}`;
+        const baseUrl = isProduction ? process.env.PROD_APP_URL : process.env.APP_URL;
+        const verificationUrl = `${baseUrl}/verify-email?token=${token}`;
         const info = await transporter.sendMail({
           from: '"FoodHub" <foodhub@ph.com>',
           to: user.email,
@@ -522,12 +528,6 @@ var auth2 = (...roles) => {
         return res.status(401).json({
           success: false,
           message: "You are not authorized!"
-        });
-      }
-      if (!session.user.emailVerified) {
-        return res.status(403).json({
-          success: false,
-          message: "Email verification required. Please verfiy your email!"
         });
       }
       req.user = {
