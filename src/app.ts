@@ -5,6 +5,7 @@ import { auth } from "./lib/auth";
 import errorHandler from "./middlewares/globalErrorHandler";
 import { AdminRoutes } from "./modules/admin/admin.route";
 import { CategoryRoutes } from "./modules/category/category.route";
+import { ContactMessageRoutes } from "./modules/contact/contact.route";
 import { mealRouter } from "./modules/meal/meal.router";
 import { orderRouter } from "./modules/order/order.route";
 import { ProfileRoutes } from "./modules/profile/profile.route";
@@ -42,6 +43,8 @@ app.use(
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
 app.use("/api/categories", CategoryRoutes);
+
+app.use("/api/contact-messages", ContactMessageRoutes);
 
 app.use("/api/providers", ProviderRoutes);
 

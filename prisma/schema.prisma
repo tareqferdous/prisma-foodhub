@@ -125,6 +125,17 @@ model Review {
   @@unique([orderId, mealId])
 }
 
+model ContactMessage {
+  id        String   @id @default(uuid())
+  name      String   @db.VarChar(120)
+  email     String   @db.VarChar(150)
+  subject   String   @db.VarChar(200)
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model User {
   id            String    @id
   name          String

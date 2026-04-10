@@ -7,11 +7,11 @@ interface GetMealsQuery {
   minPrice?: string;
   maxPrice?: string;
   search?: string;
-  page: number;
-  limit: number;
-  skip: number;
-  sortBy: string;
-  sortOrder: string;
+  page?: number;
+  limit?: number;
+  skip?: number;
+  sortBy?: string;
+  sortOrder?: string;
 }
 
 type DietaryType = "VEG" | "NON_VEG" | "HALAL";
@@ -55,6 +55,10 @@ const getMeals = async (query: GetMealsQuery) => {
   const { page, limit, skip, sortBy, sortOrder } =
     paginationSortingHelper(query);
 
+  const allowedSortFields = new Set(["createdAt", "price", "title"]);
+  const safeSortBy = allowedSortFields.has(sortBy) ? sortBy : "createdAt";
+  const safeSortOrder = sortOrder === "asc" ? "asc" : "desc";
+
   const where: any = {
     isAvailable: true,
   };
@@ -73,20 +77,32 @@ const getMeals = async (query: GetMealsQuery) => {
   }
 
   if (search) {
-    where.title = {
-      contains: search,
-      mode: "insensitive",
-    };
+    where.OR = [
+      {
+        title: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+      {
+        description: {
+          contains: search,
+          mode: "insensitive",
+        },
+      },
+    ];
   }
 
   if (minPrice || maxPrice) {
     where.price = {};
-    if (minPrice) where.price.gte = minPrice;
-    if (maxPrice) where.price.lte = maxPrice;
+    if (minPrice) where.price.gte = Number(minPrice);
+    if (maxPrice) where.price.lte = Number(maxPrice);
   }
 
   const meals = await prisma.meal.findMany({
     where,
+    skip,
+    take: limit,
     include: {
       category: true,
       reviews: true,
@@ -97,7 +113,9 @@ const getMeals = async (query: GetMealsQuery) => {
         },
       },
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: {
+      [safeSortBy]: safeSortOrder,
+    },
   });
 
   const total = await prisma.meal.count({
@@ -111,6 +129,8 @@ const getMeals = async (query: GetMealsQuery) => {
       page,
       limit,
       totalPages: Math.ceil(total / limit),
+      sortBy: safeSortBy,
+      sortOrder: safeSortOrder,
     },
   };
 };
