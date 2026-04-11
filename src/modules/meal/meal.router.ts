@@ -5,6 +5,11 @@ import { mealController } from "./meal.controller";
 const router = express.Router();
 
 router.post("/", auth(UserRole.PROVIDER), mealController.createMeal);
+router.post(
+  "/generate-description",
+  auth(UserRole.PROVIDER),
+  mealController.generateDescription,
+);
 router.patch("/", auth(UserRole.PROVIDER), mealController.updateMeal);
 router.delete("/:mealId", auth(UserRole.PROVIDER), mealController.deleteMeal);
 

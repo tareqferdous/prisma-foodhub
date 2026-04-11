@@ -1,5 +1,20 @@
 import { prisma } from "../../lib/prisma";
 
+const monthLabels = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
 interface CreateProviderInput {
   restaurantName: string;
   description?: string;
@@ -145,7 +160,7 @@ const getProviderDashboard = async (userId: string) => {
     throw error;
   }
 
-  const [activeMeals, pendingOrders, deliveredOrders, revenue] =
+  const [activeMeals, pendingOrders, deliveredOrders, revenue, recentOrders] =
     await Promise.all([
       prisma.meal.count({
         where: {
@@ -176,7 +191,64 @@ const getProviderDashboard = async (userId: string) => {
           totalPrice: true,
         },
       }),
+      prisma.order.findMany({
+        where: {
+          providerId: provider.id,
+        },
+        include: {
+          customer: {
+            select: {
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 8,
+      }),
     ]);
+
+  const monthKeys: string[] = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const date = new Date();
+    date.setMonth(date.getMonth() - i);
+    date.setDate(1);
+    monthKeys.push(`${date.getFullYear()}-${date.getMonth()}`);
+  }
+
+  const orderMonthlyMap = new Map<string, number>();
+  const revenueMonthlyMap = new Map<string, number>();
+
+  monthKeys.forEach((key) => {
+    orderMonthlyMap.set(key, 0);
+    revenueMonthlyMap.set(key, 0);
+  });
+
+  provider.orders.forEach((order) => {
+    const key = `${order.createdAt.getFullYear()}-${order.createdAt.getMonth()}`;
+    if (!orderMonthlyMap.has(key)) return;
+
+    orderMonthlyMap.set(key, (orderMonthlyMap.get(key) ?? 0) + 1);
+    if (order.status === "DELIVERED") {
+      revenueMonthlyMap.set(
+        key,
+        (revenueMonthlyMap.get(key) ?? 0) + Number(order.totalPrice),
+      );
+    }
+  });
+
+  const topMeals = provider.meals
+    .map((meal) => ({
+      id: meal.id,
+      title: meal.title,
+      category: meal.category.name,
+      price: Number(meal.price),
+      isAvailable: meal.isAvailable,
+      totalOrders: meal._count?.orderItems ?? 0,
+    }))
+    .sort((a, b) => b.totalOrders - a.totalOrders)
+    .slice(0, 8);
 
   return {
     provider,
@@ -186,6 +258,46 @@ const getProviderDashboard = async (userId: string) => {
       deliveredOrders: deliveredOrders,
       totalRevenue: revenue._sum.totalPrice || 0,
     },
+    charts: {
+      monthlyOrders: monthKeys.map((key) => {
+        const [year, month] = key.split("-").map(Number);
+        return {
+          label: `${monthLabels[month]} ${String(year).slice(-2)}`,
+          value: orderMonthlyMap.get(key) ?? 0,
+        };
+      }),
+      monthlyRevenue: monthKeys.map((key) => {
+        const [year, month] = key.split("-").map(Number);
+        return {
+          label: `${monthLabels[month]} ${String(year).slice(-2)}`,
+          value: revenueMonthlyMap.get(key) ?? 0,
+        };
+      }),
+      orderStatus: [
+        { label: "Pending", value: pendingOrders },
+        { label: "Delivered", value: deliveredOrders },
+        {
+          label: "Cancelled",
+          value: provider.orders.filter((order) => order.status === "CANCELLED")
+            .length,
+        },
+      ],
+      mealAvailability: [
+        { label: "Active", value: activeMeals },
+        {
+          label: "Inactive",
+          value: Math.max(provider.meals.length - activeMeals, 0),
+        },
+      ],
+    },
+    recentOrders: recentOrders.map((order) => ({
+      id: order.id,
+      customerName: order.customer.name,
+      status: order.status,
+      totalPrice: Number(order.totalPrice),
+      createdAt: order.createdAt,
+    })),
+    topMeals,
   };
 };
 

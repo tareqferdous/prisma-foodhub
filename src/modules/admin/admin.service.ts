@@ -1,6 +1,38 @@
 import { UserStatus } from "../../../generated/prisma/enums";
 import { prisma } from "../../lib/prisma";
 
+const monthLabels = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+const getLastSixMonthKeys = () => {
+  const today = new Date();
+  const keys: string[] = [];
+
+  for (let i = 5; i >= 0; i -= 1) {
+    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    keys.push(`${date.getFullYear()}-${date.getMonth()}`);
+  }
+
+  return keys;
+};
+
+const toMonthLabel = (key: string) => {
+  const [year, month] = key.split("-").map(Number);
+  return `${monthLabels[month]} ${String(year).slice(-2)}`;
+};
+
 const getAllUsers = async () => {
   return await prisma.user.findMany({
     where: {
@@ -52,6 +84,12 @@ const deleteCategory = async (categoryId: string) => {
 };
 
 const getAdminStats = async () => {
+  const sixMonthKeys = getLastSixMonthKeys();
+  const sixMonthStart = new Date();
+  sixMonthStart.setMonth(sixMonthStart.getMonth() - 5);
+  sixMonthStart.setDate(1);
+  sixMonthStart.setHours(0, 0, 0, 0);
+
   const [
     totalUsers,
     totalCustomers,
@@ -68,6 +106,8 @@ const getAdminStats = async () => {
     cancelledOrders,
 
     revenue,
+    recentOrders,
+    sixMonthOrders,
   ] = await Promise.all([
     // Users
     prisma.user.count(),
@@ -91,7 +131,60 @@ const getAdminStats = async () => {
       where: { status: "DELIVERED" },
       _sum: { totalPrice: true },
     }),
+    prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      include: {
+        customer: {
+          select: {
+            name: true,
+          },
+        },
+        provider: {
+          select: {
+            restaurantName: true,
+          },
+        },
+      },
+    }),
+    prisma.order.findMany({
+      where: {
+        createdAt: {
+          gte: sixMonthStart,
+        },
+      },
+      select: {
+        createdAt: true,
+        status: true,
+        totalPrice: true,
+      },
+    }),
   ]);
+
+  const monthlyOrderMap = new Map<string, number>();
+  const monthlyRevenueMap = new Map<string, number>();
+
+  sixMonthKeys.forEach((key) => {
+    monthlyOrderMap.set(key, 0);
+    monthlyRevenueMap.set(key, 0);
+  });
+
+  sixMonthOrders.forEach((order) => {
+    const key = `${order.createdAt.getFullYear()}-${order.createdAt.getMonth()}`;
+
+    if (!monthlyOrderMap.has(key)) {
+      return;
+    }
+
+    monthlyOrderMap.set(key, (monthlyOrderMap.get(key) ?? 0) + 1);
+
+    if (order.status === "DELIVERED") {
+      monthlyRevenueMap.set(
+        key,
+        (monthlyRevenueMap.get(key) ?? 0) + Number(order.totalPrice),
+      );
+    }
+  });
 
   return {
     users: {
@@ -112,6 +205,37 @@ const getAdminStats = async () => {
       cancelled: cancelledOrders,
     },
     revenue: revenue._sum.totalPrice || 0,
+    charts: {
+      monthlyOrders: sixMonthKeys.map((key) => ({
+        label: toMonthLabel(key),
+        value: monthlyOrderMap.get(key) ?? 0,
+      })),
+      monthlyRevenue: sixMonthKeys.map((key) => ({
+        label: toMonthLabel(key),
+        value: monthlyRevenueMap.get(key) ?? 0,
+      })),
+      orderStatus: [
+        { label: "Pending", value: pendingOrders },
+        { label: "Delivered", value: deliveredOrders },
+        { label: "Cancelled", value: cancelledOrders },
+      ],
+      userDistribution: [
+        { label: "Customers", value: totalCustomers },
+        { label: "Providers", value: totalProviders },
+        {
+          label: "Admins",
+          value: Math.max(totalUsers - totalCustomers - totalProviders, 0),
+        },
+      ],
+    },
+    recentOrders: recentOrders.map((order) => ({
+      id: order.id,
+      createdAt: order.createdAt,
+      customerName: order.customer.name,
+      providerName: order.provider.restaurantName,
+      status: order.status,
+      totalPrice: Number(order.totalPrice),
+    })),
   };
 };
 

@@ -8,10 +8,11 @@ const updateProfile = async (
 ) => {
   try {
     const userId = req.user!.id;
-    const { name, image } = req.body;
+    const { name, image, email } = req.body;
     const updatedProfile = await profileService.updateUserProfile(
       userId,
       name,
+      email,
       image,
     );
     res.status(200).json({
@@ -24,6 +25,42 @@ const updateProfile = async (
   }
 };
 
+const getDashboard = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const userId = req.user!.id;
+    const dashboard = await profileService.getCustomerDashboard(userId);
+    res.status(200).json({
+      success: true,
+      data: dashboard,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getRecommendations = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const userId = req.user!.id;
+    const recommendations = await profileService.getMealRecommendations(userId);
+    res.status(200).json({
+      success: true,
+      data: recommendations,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const profileController = {
+  getDashboard,
+  getRecommendations,
   updateProfile,
 };

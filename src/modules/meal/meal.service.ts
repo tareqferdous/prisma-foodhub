@@ -26,6 +26,37 @@ interface CreateMealInput {
   providerId: string;
 }
 
+interface GenerateDescriptionInput {
+  title: string;
+  keyPoints?: string;
+  categoryName?: string;
+  dietaryType?: DietaryType;
+}
+
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_MODEL =
+  process.env.OPENROUTER_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
+
+const fallbackDescription = ({
+  title,
+  keyPoints,
+  categoryName,
+  dietaryType,
+}: GenerateDescriptionInput) => {
+  const parts: string[] = [];
+
+  if (categoryName) parts.push(`${categoryName} category`);
+  if (dietaryType) parts.push(`${dietaryType.replace("_", " ")} option`);
+
+  const meta = parts.length ? ` in our ${parts.join(", ")}` : "";
+  const keyPointText = keyPoints?.trim()
+    ? ` Crafted with ${keyPoints.trim().toLowerCase()}.`
+    : " Prepared fresh with quality ingredients for a rich, satisfying taste.";
+
+  return `${title} is a flavorful signature dish${meta}.${keyPointText} Perfect for customers who want balanced taste, aroma, and quality in every bite.`;
+};
+
 const createMeal = async (data: CreateMealInput) => {
   const category = await prisma.category.findUnique({
     where: { id: data.categoryId },
@@ -211,10 +242,85 @@ const deleteMeal = async (userId: string, mealId: string) => {
   });
 };
 
+const generateMealDescription = async (input: GenerateDescriptionInput) => {
+  if (!input.title?.trim()) {
+    throw new Error("Meal title is required");
+  }
+
+  if (!OPENROUTER_API_KEY) {
+    return {
+      description: fallbackDescription(input),
+      source: "fallback",
+    };
+  }
+
+  const systemPrompt =
+    "You are a menu copywriter for a food delivery app. Write concise, appetizing meal descriptions in clear English for Bangladeshi customers.";
+
+  const userPrompt = [
+    `Meal title: ${input.title}`,
+    input.keyPoints ? `Key points: ${input.keyPoints}` : "",
+    input.categoryName ? `Category: ${input.categoryName}` : "",
+    input.dietaryType ? `Dietary type: ${input.dietaryType}` : "",
+    "Write one polished paragraph (35-60 words), no markdown, no bullets.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    const response = await fetch(OPENROUTER_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
+        "X-Title": "FoodHub Meal Description Generator",
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: 140,
+      }),
+    });
+
+    if (!response.ok) {
+      return {
+        description: fallbackDescription(input),
+        source: "fallback",
+      };
+    }
+
+    const data = await response.json();
+    const generated = data?.choices?.[0]?.message?.content?.trim();
+
+    if (!generated) {
+      return {
+        description: fallbackDescription(input),
+        source: "fallback",
+      };
+    }
+
+    return {
+      description: generated,
+      source: "openrouter",
+    };
+  } catch {
+    return {
+      description: fallbackDescription(input),
+      source: "fallback",
+    };
+  }
+};
+
 export const mealService = {
   createMeal,
   getMeals,
   getMealById,
   updateMeal,
   deleteMeal,
+  generateMealDescription,
 };

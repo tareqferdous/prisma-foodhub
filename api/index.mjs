@@ -562,6 +562,33 @@ var auth2 = (...roles) => {
 var auth_default = auth2;
 
 // src/modules/admin/admin.service.ts
+var monthLabels = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec"
+];
+var getLastSixMonthKeys = () => {
+  const today = /* @__PURE__ */ new Date();
+  const keys = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    keys.push(`${date.getFullYear()}-${date.getMonth()}`);
+  }
+  return keys;
+};
+var toMonthLabel = (key) => {
+  const [year, month] = key.split("-").map(Number);
+  return `${monthLabels[month]} ${String(year).slice(-2)}`;
+};
 var getAllUsers = async () => {
   return await prisma.user.findMany({
     where: {
@@ -603,6 +630,11 @@ var deleteCategory = async (categoryId) => {
   return await prisma.category.delete({ where: { id: categoryId } });
 };
 var getAdminStats = async () => {
+  const sixMonthKeys = getLastSixMonthKeys();
+  const sixMonthStart = /* @__PURE__ */ new Date();
+  sixMonthStart.setMonth(sixMonthStart.getMonth() - 5);
+  sixMonthStart.setDate(1);
+  sixMonthStart.setHours(0, 0, 0, 0);
   const [
     totalUsers,
     totalCustomers,
@@ -615,7 +647,9 @@ var getAdminStats = async () => {
     pendingOrders,
     deliveredOrders,
     cancelledOrders,
-    revenue
+    revenue,
+    recentOrders,
+    sixMonthOrders
   ] = await Promise.all([
     // Users
     prisma.user.count(),
@@ -635,8 +669,55 @@ var getAdminStats = async () => {
     prisma.order.aggregate({
       where: { status: "DELIVERED" },
       _sum: { totalPrice: true }
+    }),
+    prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      include: {
+        customer: {
+          select: {
+            name: true
+          }
+        },
+        provider: {
+          select: {
+            restaurantName: true
+          }
+        }
+      }
+    }),
+    prisma.order.findMany({
+      where: {
+        createdAt: {
+          gte: sixMonthStart
+        }
+      },
+      select: {
+        createdAt: true,
+        status: true,
+        totalPrice: true
+      }
     })
   ]);
+  const monthlyOrderMap = /* @__PURE__ */ new Map();
+  const monthlyRevenueMap = /* @__PURE__ */ new Map();
+  sixMonthKeys.forEach((key) => {
+    monthlyOrderMap.set(key, 0);
+    monthlyRevenueMap.set(key, 0);
+  });
+  sixMonthOrders.forEach((order) => {
+    const key = `${order.createdAt.getFullYear()}-${order.createdAt.getMonth()}`;
+    if (!monthlyOrderMap.has(key)) {
+      return;
+    }
+    monthlyOrderMap.set(key, (monthlyOrderMap.get(key) ?? 0) + 1);
+    if (order.status === "DELIVERED") {
+      monthlyRevenueMap.set(
+        key,
+        (monthlyRevenueMap.get(key) ?? 0) + Number(order.totalPrice)
+      );
+    }
+  });
   return {
     users: {
       total: totalUsers,
@@ -655,7 +736,38 @@ var getAdminStats = async () => {
       delivered: deliveredOrders,
       cancelled: cancelledOrders
     },
-    revenue: revenue._sum.totalPrice || 0
+    revenue: revenue._sum.totalPrice || 0,
+    charts: {
+      monthlyOrders: sixMonthKeys.map((key) => ({
+        label: toMonthLabel(key),
+        value: monthlyOrderMap.get(key) ?? 0
+      })),
+      monthlyRevenue: sixMonthKeys.map((key) => ({
+        label: toMonthLabel(key),
+        value: monthlyRevenueMap.get(key) ?? 0
+      })),
+      orderStatus: [
+        { label: "Pending", value: pendingOrders },
+        { label: "Delivered", value: deliveredOrders },
+        { label: "Cancelled", value: cancelledOrders }
+      ],
+      userDistribution: [
+        { label: "Customers", value: totalCustomers },
+        { label: "Providers", value: totalProviders },
+        {
+          label: "Admins",
+          value: Math.max(totalUsers - totalCustomers - totalProviders, 0)
+        }
+      ]
+    },
+    recentOrders: recentOrders.map((order) => ({
+      id: order.id,
+      createdAt: order.createdAt,
+      customerName: order.customer.name,
+      providerName: order.provider.restaurantName,
+      status: order.status,
+      totalPrice: Number(order.totalPrice)
+    }))
   };
 };
 var adminService = {
@@ -847,8 +959,145 @@ router2.post("/", auth_default("ADMIN" /* ADMIN */), CategoryController.createCa
 router2.get("/", CategoryController.getAllCategories);
 var CategoryRoutes = router2;
 
-// src/modules/contact/contact.route.ts
+// src/modules/chat/chat.route.ts
 import { Router as Router3 } from "express";
+
+// src/modules/chat/chat.service.ts
+var OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+var OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+var OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
+var SYSTEM_PROMPT = `You are a helpful customer service assistant for FoodHub, a food delivery platform in Bangladesh.
+You help customers with:
+- Order tracking and delivery status
+- Menu and meal information
+- Restaurant details and cuisines
+- General FAQs about ordering process
+- Payment methods and pricing
+- Delivery times and fees
+
+Be friendly, concise, and answer in Bengali/English (user's preference).
+If asked about something unrelated to food delivery, politely redirect to FoodHub services.
+Never provide personal/sensitive information.
+Keep responses short (2-3 sentences max).`;
+var getFallbackReply = (userMessage) => {
+  const q = userMessage.toLowerCase();
+  if (q.includes("order") || q.includes("\u0985\u09B0\u09CD\u09A1\u09BE\u09B0")) {
+    return "\u0986\u09AA\u09A8\u09BE\u09B0 \u0985\u09B0\u09CD\u09A1\u09BE\u09B0 \u0986\u09AA\u09A1\u09C7\u099F \u09A6\u09C7\u0996\u09A4\u09C7 My Orders \u09AA\u09C7\u0987\u099C \u099A\u09C7\u0995 \u0995\u09B0\u09C1\u09A8\u0964 \u09A8\u09BF\u09B0\u09CD\u09A6\u09BF\u09B7\u09CD\u099F \u0985\u09B0\u09CD\u09A1\u09BE\u09B0 \u0986\u0987\u09A1\u09BF \u09A6\u09BF\u09B2\u09C7 \u0986\u09AE\u09BF \u0997\u09BE\u0987\u09A1 \u0995\u09B0\u09A4\u09C7 \u09AA\u09BE\u09B0\u09BF\u0964";
+  }
+  if (q.includes("menu") || q.includes("meal") || q.includes("\u09AE\u09C7\u09A8\u09C1") || q.includes("\u0996\u09BE\u09AC\u09BE\u09B0")) {
+    return "\u09AE\u09C7\u09A8\u09C1 \u09A6\u09C7\u0996\u09A4\u09C7 Meals \u09AA\u09C7\u0987\u099C\u09C7 \u09AF\u09BE\u09A8\u0964 \u0995\u09CD\u09AF\u09BE\u099F\u09BE\u0997\u09B0\u09BF, \u09AA\u09CD\u09B0\u09BE\u0987\u09B8 \u09AC\u09BE \u09B0\u09C7\u09B8\u09CD\u099F\u09C1\u09B0\u09C7\u09A8\u09CD\u099F \u0985\u09A8\u09C1\u09AF\u09BE\u09DF\u09C0 \u09AB\u09BF\u09B2\u09CD\u099F\u09BE\u09B0 \u0995\u09B0\u09C7 \u09AA\u099B\u09A8\u09CD\u09A6\u09C7\u09B0 \u0986\u0987\u099F\u09C7\u09AE \u09AC\u09C7\u099B\u09C7 \u09A8\u09BF\u09A4\u09C7 \u09AA\u09BE\u09B0\u09AC\u09C7\u09A8\u0964";
+  }
+  if (q.includes("delivery") || q.includes("\u09A1\u09C7\u09B2\u09BF\u09AD\u09BE\u09B0\u09BF") || q.includes("time") || q.includes("\u09B8\u09AE\u09DF")) {
+    return "\u09A1\u09C7\u09B2\u09BF\u09AD\u09BE\u09B0\u09BF \u09B8\u09AE\u09DF \u09B2\u09CB\u0995\u09C7\u09B6\u09A8 \u0993 \u09B0\u09C7\u09B8\u09CD\u099F\u09C1\u09B0\u09C7\u09A8\u09CD\u099F \u0985\u09A8\u09C1\u09AF\u09BE\u09DF\u09C0 \u09AD\u09BF\u09A8\u09CD\u09A8 \u09B9\u09A4\u09C7 \u09AA\u09BE\u09B0\u09C7\u0964 \u099A\u09C7\u0995\u0986\u0989\u099F\u09C7\u09B0 \u09B8\u09AE\u09DF \u0986\u09A8\u09C1\u09AE\u09BE\u09A8\u09BF\u0995 \u09B8\u09AE\u09DF \u09A6\u09C7\u0996\u09BE\u09A8\u09CB \u09B9\u09DF\u0964";
+  }
+  if (q.includes("payment") || q.includes("\u09AA\u09C7\u09AE\u09C7\u09A8\u09CD\u099F") || q.includes("price")) {
+    return "\u09AA\u09C7\u09AE\u09C7\u09A8\u09CD\u099F \u0993 \u09AE\u09CB\u099F \u0996\u09B0\u099A \u0985\u09B0\u09CD\u09A1\u09BE\u09B0 \u0995\u09A8\u09AB\u09BE\u09B0\u09CD\u09AE\u09C7\u09B0 \u0986\u0997\u09C7 Checkout \u09AA\u09C7\u0987\u099C\u09C7 \u09B8\u09CD\u09AA\u09B7\u09CD\u099F\u09AD\u09BE\u09AC\u09C7 \u09A6\u09C7\u0996\u09BE\u09A8\u09CB \u09B9\u09DF\u0964";
+  }
+  return "\u0986\u09AE\u09BF FoodHub \u09B8\u09B9\u09BE\u09DF\u0995\u0964 \u0985\u09B0\u09CD\u09A1\u09BE\u09B0, \u09AE\u09C7\u09A8\u09C1, \u09A1\u09C7\u09B2\u09BF\u09AD\u09BE\u09B0\u09BF, \u09AC\u09BE \u09AA\u09C7\u09AE\u09C7\u09A8\u09CD\u099F \u09AC\u09BF\u09B7\u09DF\u09C7 \u09AA\u09CD\u09B0\u09B6\u09CD\u09A8 \u0995\u09B0\u09B2\u09C7 \u09A6\u09CD\u09B0\u09C1\u09A4 \u09B8\u09BE\u09B9\u09BE\u09AF\u09CD\u09AF \u0995\u09B0\u09A4\u09C7 \u09AA\u09BE\u09B0\u09AC\u0964";
+};
+var ChatService = class {
+  static async chat(userMessage, conversationHistory = []) {
+    try {
+      if (!OPENROUTER_API_KEY) {
+        return {
+          success: true,
+          message: getFallbackReply(userMessage),
+          timestamp: /* @__PURE__ */ new Date(),
+          source: "fallback"
+        };
+      }
+      const messages = [
+        ...conversationHistory,
+        { role: "user", content: userMessage }
+      ];
+      const response = await fetch(OPENROUTER_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
+          // Required by OpenRouter
+          "X-Title": "FoodHub"
+          // Required by OpenRouter
+        },
+        body: JSON.stringify({
+          model: OPENROUTER_MODEL,
+          messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+          temperature: 0.7,
+          max_tokens: 150
+        })
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        console.error("OpenRouter API Error:", error);
+        return {
+          success: true,
+          message: getFallbackReply(userMessage),
+          timestamp: /* @__PURE__ */ new Date(),
+          source: "fallback",
+          error: `OpenRouter API error: ${response.status}`
+        };
+      }
+      const data = await response.json();
+      const assistantMessage = data.choices[0]?.message?.content || "Sorry, I couldn't process that request.";
+      return {
+        success: true,
+        message: assistantMessage,
+        timestamp: /* @__PURE__ */ new Date(),
+        source: "openrouter"
+      };
+    } catch (error) {
+      console.error("Chat service error:", error);
+      return {
+        success: true,
+        message: getFallbackReply(userMessage),
+        timestamp: /* @__PURE__ */ new Date(),
+        source: "fallback",
+        error: error instanceof Error ? error.message : "Unknown error"
+      };
+    }
+  }
+};
+
+// src/modules/chat/chat.route.ts
+var chatRouter = Router3();
+chatRouter.post("/", async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Message is required"
+      });
+    }
+    if (message.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Message is too long (max 500 characters)"
+      });
+    }
+    const result = await ChatService.chat(message);
+    return res.status(200).json({
+      success: result.success,
+      data: {
+        message: result.message,
+        timestamp: result.timestamp,
+        source: result.source || "fallback"
+      },
+      error: result.error || null
+    });
+  } catch (error) {
+    console.error("Chat route error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
+
+// src/modules/contact/contact.route.ts
+import { Router as Router4 } from "express";
 
 // src/modules/contact/contact.service.ts
 var createContactMessage = async (payload) => {
@@ -923,7 +1172,7 @@ var ContactMessageController = {
 };
 
 // src/modules/contact/contact.route.ts
-var router3 = Router3();
+var router3 = Router4();
 router3.post("/", ContactMessageController.createContactMessage);
 router3.get(
   "/",
@@ -953,6 +1202,22 @@ var paginationSortingHelper = (options) => {
 var paginationSortingHelper_default = paginationSortingHelper;
 
 // src/modules/meal/meal.service.ts
+var OPENROUTER_API_KEY2 = process.env.OPENROUTER_API_KEY;
+var OPENROUTER_API_URL2 = "https://openrouter.ai/api/v1/chat/completions";
+var OPENROUTER_MODEL2 = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
+var fallbackDescription = ({
+  title,
+  keyPoints,
+  categoryName,
+  dietaryType
+}) => {
+  const parts = [];
+  if (categoryName) parts.push(`${categoryName} category`);
+  if (dietaryType) parts.push(`${dietaryType.replace("_", " ")} option`);
+  const meta = parts.length ? ` in our ${parts.join(", ")}` : "";
+  const keyPointText = keyPoints?.trim() ? ` Crafted with ${keyPoints.trim().toLowerCase()}.` : " Prepared fresh with quality ingredients for a rich, satisfying taste.";
+  return `${title} is a flavorful signature dish${meta}.${keyPointText} Perfect for customers who want balanced taste, aroma, and quality in every bite.`;
+};
 var createMeal = async (data) => {
   const category = await prisma.category.findUnique({
     where: { id: data.categoryId }
@@ -1113,12 +1378,75 @@ var deleteMeal = async (userId, mealId) => {
     }
   });
 };
+var generateMealDescription = async (input) => {
+  if (!input.title?.trim()) {
+    throw new Error("Meal title is required");
+  }
+  if (!OPENROUTER_API_KEY2) {
+    return {
+      description: fallbackDescription(input),
+      source: "fallback"
+    };
+  }
+  const systemPrompt = "You are a menu copywriter for a food delivery app. Write concise, appetizing meal descriptions in clear English for Bangladeshi customers.";
+  const userPrompt = [
+    `Meal title: ${input.title}`,
+    input.keyPoints ? `Key points: ${input.keyPoints}` : "",
+    input.categoryName ? `Category: ${input.categoryName}` : "",
+    input.dietaryType ? `Dietary type: ${input.dietaryType}` : "",
+    "Write one polished paragraph (35-60 words), no markdown, no bullets."
+  ].filter(Boolean).join("\n");
+  try {
+    const response = await fetch(OPENROUTER_API_URL2, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENROUTER_API_KEY2}`,
+        "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
+        "X-Title": "FoodHub Meal Description Generator"
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.8,
+        max_tokens: 140
+      })
+    });
+    if (!response.ok) {
+      return {
+        description: fallbackDescription(input),
+        source: "fallback"
+      };
+    }
+    const data = await response.json();
+    const generated = data?.choices?.[0]?.message?.content?.trim();
+    if (!generated) {
+      return {
+        description: fallbackDescription(input),
+        source: "fallback"
+      };
+    }
+    return {
+      description: generated,
+      source: "openrouter"
+    };
+  } catch {
+    return {
+      description: fallbackDescription(input),
+      source: "fallback"
+    };
+  }
+};
 var mealService = {
   createMeal,
   getMeals,
   getMealById,
   updateMeal,
-  deleteMeal
+  deleteMeal,
+  generateMealDescription
 };
 
 // src/modules/meal/meal.controller.ts
@@ -1199,17 +1527,46 @@ var deleteMeal2 = async (req, res, next) => {
     next(error);
   }
 };
+var generateDescription = async (req, res, next) => {
+  try {
+    const { title, keyPoints, categoryName, dietaryType } = req.body;
+    if (!title || typeof title !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Title is required"
+      });
+    }
+    const result = await mealService.generateMealDescription({
+      title,
+      keyPoints,
+      categoryName,
+      dietaryType
+    });
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 var mealController = {
   createMeal: createMeal2,
   getAllMeals,
   getMeal,
   updateMeal: updateMeal2,
-  deleteMeal: deleteMeal2
+  deleteMeal: deleteMeal2,
+  generateDescription
 };
 
 // src/modules/meal/meal.router.ts
 var router4 = express.Router();
 router4.post("/", auth_default("PROVIDER" /* PROVIDER */), mealController.createMeal);
+router4.post(
+  "/generate-description",
+  auth_default("PROVIDER" /* PROVIDER */),
+  mealController.generateDescription
+);
 router4.patch("/", auth_default("PROVIDER" /* PROVIDER */), mealController.updateMeal);
 router4.delete("/:mealId", auth_default("PROVIDER" /* PROVIDER */), mealController.deleteMeal);
 router4.get("/", mealController.getAllMeals);
@@ -1452,20 +1809,243 @@ router5.patch(
 var orderRouter = router5;
 
 // src/modules/profile/profile.route.ts
-import { Router as Router6 } from "express";
+import { Router as Router7 } from "express";
 
 // src/modules/profile/profile.service.ts
-var updateUserProfile = async (userId, name, image) => {
+var monthLabels2 = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec"
+];
+var getLastSixMonthKeys2 = () => {
+  const today = /* @__PURE__ */ new Date();
+  const keys = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    keys.push(`${date.getFullYear()}-${date.getMonth()}`);
+  }
+  return keys;
+};
+var updateUserProfile = async (userId, name, email, image) => {
   const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: {
       name,
+      ...email ? { email } : {},
       image
     }
   });
   return updatedUser;
 };
+var getCustomerDashboard = async (userId) => {
+  const sixMonthKeys = getLastSixMonthKeys2();
+  const sixMonthStart = /* @__PURE__ */ new Date();
+  sixMonthStart.setMonth(sixMonthStart.getMonth() - 5);
+  sixMonthStart.setDate(1);
+  sixMonthStart.setHours(0, 0, 0, 0);
+  const [allOrders, recentOrders, recentForChart] = await Promise.all([
+    prisma.order.findMany({
+      where: { customerId: userId },
+      select: {
+        status: true,
+        totalPrice: true
+      }
+    }),
+    prisma.order.findMany({
+      where: { customerId: userId },
+      include: {
+        provider: {
+          select: {
+            restaurantName: true
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      take: 8
+    }),
+    prisma.order.findMany({
+      where: {
+        customerId: userId,
+        createdAt: {
+          gte: sixMonthStart
+        }
+      },
+      select: {
+        createdAt: true
+      }
+    })
+  ]);
+  const monthlyMap = /* @__PURE__ */ new Map();
+  sixMonthKeys.forEach((key) => monthlyMap.set(key, 0));
+  recentForChart.forEach((order) => {
+    const key = `${order.createdAt.getFullYear()}-${order.createdAt.getMonth()}`;
+    if (!monthlyMap.has(key)) return;
+    monthlyMap.set(key, (monthlyMap.get(key) ?? 0) + 1);
+  });
+  const deliveredOrders = allOrders.filter(
+    (order) => order.status === "DELIVERED"
+  );
+  return {
+    overview: {
+      totalOrders: allOrders.length,
+      activeOrders: allOrders.filter((order) => order.status === "PLACED").length,
+      deliveredOrders: deliveredOrders.length,
+      totalSpent: deliveredOrders.reduce(
+        (acc, order) => acc + Number(order.totalPrice),
+        0
+      )
+    },
+    monthlyOrders: sixMonthKeys.map((key) => {
+      const [year, month] = key.split("-").map(Number);
+      return {
+        label: `${monthLabels2[month]} ${String(year).slice(-2)}`,
+        value: monthlyMap.get(key) ?? 0
+      };
+    }),
+    statusDistribution: [
+      {
+        label: "Pending",
+        value: allOrders.filter((order) => order.status === "PLACED").length
+      },
+      {
+        label: "Delivered",
+        value: deliveredOrders.length
+      },
+      {
+        label: "Cancelled",
+        value: allOrders.filter((order) => order.status === "CANCELLED").length
+      }
+    ],
+    recentOrders: recentOrders.map((order) => ({
+      id: order.id,
+      status: order.status,
+      totalPrice: Number(order.totalPrice),
+      createdAt: order.createdAt,
+      providerName: order.provider.restaurantName
+    }))
+  };
+};
+var getMealRecommendations = async (userId) => {
+  const recentOrderItems = await prisma.orderItem.findMany({
+    where: {
+      order: {
+        customerId: userId
+      }
+    },
+    select: {
+      mealId: true,
+      quantity: true,
+      meal: {
+        select: {
+          categoryId: true,
+          providerId: true,
+          dietaryType: true
+        }
+      }
+    },
+    orderBy: {
+      order: {
+        createdAt: "desc"
+      }
+    },
+    take: 120
+  });
+  const includeMealShape = {
+    category: true,
+    reviews: true,
+    provider: {
+      select: {
+        id: true,
+        restaurantName: true
+      }
+    },
+    _count: {
+      select: {
+        orderItems: true
+      }
+    }
+  };
+  if (recentOrderItems.length === 0) {
+    const popularMeals = await prisma.meal.findMany({
+      where: { isAvailable: true },
+      include: includeMealShape,
+      orderBy: [
+        {
+          orderItems: {
+            _count: "desc"
+          }
+        },
+        {
+          createdAt: "desc"
+        }
+      ],
+      take: 4
+    });
+    return popularMeals.map(({ _count, ...meal }) => ({
+      ...meal,
+      recommendationScore: Number(
+        (Math.min(_count.orderItems, 20) * 0.3).toFixed(2)
+      )
+    }));
+  }
+  const orderedMealIds = /* @__PURE__ */ new Set();
+  const categoryWeight = /* @__PURE__ */ new Map();
+  const providerWeight = /* @__PURE__ */ new Map();
+  const dietaryWeight = /* @__PURE__ */ new Map();
+  for (const item of recentOrderItems) {
+    const quantity = item.quantity ?? 1;
+    orderedMealIds.add(item.mealId);
+    if (item.meal.categoryId) {
+      categoryWeight.set(
+        item.meal.categoryId,
+        (categoryWeight.get(item.meal.categoryId) ?? 0) + quantity * 3
+      );
+    }
+    if (item.meal.providerId) {
+      providerWeight.set(
+        item.meal.providerId,
+        (providerWeight.get(item.meal.providerId) ?? 0) + quantity * 2
+      );
+    }
+    if (item.meal.dietaryType) {
+      dietaryWeight.set(
+        item.meal.dietaryType,
+        (dietaryWeight.get(item.meal.dietaryType) ?? 0) + quantity * 1.5
+      );
+    }
+  }
+  const candidates = await prisma.meal.findMany({
+    where: {
+      isAvailable: true,
+      id: {
+        notIn: Array.from(orderedMealIds).slice(0, 40)
+      }
+    },
+    include: includeMealShape,
+    take: 30
+  });
+  const scoredMeals = candidates.map((meal) => {
+    const avgRating = meal.reviews.length ? meal.reviews.reduce((sum, review) => sum + review.rating, 0) / meal.reviews.length : 0;
+    const score = (categoryWeight.get(meal.categoryId) ?? 0) + (providerWeight.get(meal.providerId) ?? 0) + (dietaryWeight.get(meal.dietaryType) ?? 0) + Math.min(meal._count.orderItems, 20) * 0.3 + avgRating * 0.5;
+    return {
+      ...meal,
+      recommendationScore: Number(score.toFixed(2))
+    };
+  }).sort((a, b) => b.recommendationScore - a.recommendationScore).slice(0, 4).map(({ _count, ...meal }) => meal);
+  return scoredMeals;
+};
 var profileService = {
+  getCustomerDashboard,
+  getMealRecommendations,
   updateUserProfile
 };
 
@@ -1473,10 +2053,11 @@ var profileService = {
 var updateProfile = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { name, image } = req.body;
+    const { name, image, email } = req.body;
     const updatedProfile = await profileService.updateUserProfile(
       userId,
       name,
+      email,
       image
     );
     res.status(200).json({
@@ -1488,19 +2069,61 @@ var updateProfile = async (req, res, next) => {
     next(error);
   }
 };
+var getDashboard = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const dashboard = await profileService.getCustomerDashboard(userId);
+    res.status(200).json({
+      success: true,
+      data: dashboard
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+var getRecommendations = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const recommendations = await profileService.getMealRecommendations(userId);
+    res.status(200).json({
+      success: true,
+      data: recommendations
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 var profileController = {
+  getDashboard,
+  getRecommendations,
   updateProfile
 };
 
 // src/modules/profile/profile.route.ts
-var router6 = Router6();
+var router6 = Router7();
+router6.get("/dashboard", auth_default(), profileController.getDashboard);
+router6.get("/recommendations", auth_default(), profileController.getRecommendations);
 router6.put("/", auth_default(), profileController.updateProfile);
 var ProfileRoutes = router6;
 
 // src/modules/provider/provider.route.ts
-import { Router as Router7 } from "express";
+import { Router as Router8 } from "express";
 
 // src/modules/provider/provider.service.ts
+var monthLabels3 = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec"
+];
 var createProviderProfile = async (data) => {
   const existing = await prisma.providerProfile.findUnique({
     where: { userId: data.userId }
@@ -1622,7 +2245,7 @@ var getProviderDashboard = async (userId) => {
     error.statusCode = 404;
     throw error;
   }
-  const [activeMeals, pendingOrders, deliveredOrders, revenue] = await Promise.all([
+  const [activeMeals, pendingOrders, deliveredOrders, revenue, recentOrders] = await Promise.all([
     prisma.meal.count({
       where: {
         providerId: provider.id,
@@ -1649,8 +2272,56 @@ var getProviderDashboard = async (userId) => {
       _sum: {
         totalPrice: true
       }
+    }),
+    prisma.order.findMany({
+      where: {
+        providerId: provider.id
+      },
+      include: {
+        customer: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: 8
     })
   ]);
+  const monthKeys = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const date = /* @__PURE__ */ new Date();
+    date.setMonth(date.getMonth() - i);
+    date.setDate(1);
+    monthKeys.push(`${date.getFullYear()}-${date.getMonth()}`);
+  }
+  const orderMonthlyMap = /* @__PURE__ */ new Map();
+  const revenueMonthlyMap = /* @__PURE__ */ new Map();
+  monthKeys.forEach((key) => {
+    orderMonthlyMap.set(key, 0);
+    revenueMonthlyMap.set(key, 0);
+  });
+  provider.orders.forEach((order) => {
+    const key = `${order.createdAt.getFullYear()}-${order.createdAt.getMonth()}`;
+    if (!orderMonthlyMap.has(key)) return;
+    orderMonthlyMap.set(key, (orderMonthlyMap.get(key) ?? 0) + 1);
+    if (order.status === "DELIVERED") {
+      revenueMonthlyMap.set(
+        key,
+        (revenueMonthlyMap.get(key) ?? 0) + Number(order.totalPrice)
+      );
+    }
+  });
+  const topMeals = provider.meals.map((meal) => ({
+    id: meal.id,
+    title: meal.title,
+    category: meal.category.name,
+    price: Number(meal.price),
+    isAvailable: meal.isAvailable,
+    totalOrders: meal._count?.orderItems ?? 0
+  })).sort((a, b) => b.totalOrders - a.totalOrders).slice(0, 8);
   return {
     provider,
     stats: {
@@ -1658,7 +2329,46 @@ var getProviderDashboard = async (userId) => {
       pendingOrders,
       deliveredOrders,
       totalRevenue: revenue._sum.totalPrice || 0
-    }
+    },
+    charts: {
+      monthlyOrders: monthKeys.map((key) => {
+        const [year, month] = key.split("-").map(Number);
+        return {
+          label: `${monthLabels3[month]} ${String(year).slice(-2)}`,
+          value: orderMonthlyMap.get(key) ?? 0
+        };
+      }),
+      monthlyRevenue: monthKeys.map((key) => {
+        const [year, month] = key.split("-").map(Number);
+        return {
+          label: `${monthLabels3[month]} ${String(year).slice(-2)}`,
+          value: revenueMonthlyMap.get(key) ?? 0
+        };
+      }),
+      orderStatus: [
+        { label: "Pending", value: pendingOrders },
+        { label: "Delivered", value: deliveredOrders },
+        {
+          label: "Cancelled",
+          value: provider.orders.filter((order) => order.status === "CANCELLED").length
+        }
+      ],
+      mealAvailability: [
+        { label: "Active", value: activeMeals },
+        {
+          label: "Inactive",
+          value: Math.max(provider.meals.length - activeMeals, 0)
+        }
+      ]
+    },
+    recentOrders: recentOrders.map((order) => ({
+      id: order.id,
+      customerName: order.customer.name,
+      status: order.status,
+      totalPrice: Number(order.totalPrice),
+      createdAt: order.createdAt
+    })),
+    topMeals
   };
 };
 var ProviderService = {
@@ -1772,7 +2482,7 @@ var ProviderController = {
 };
 
 // src/modules/provider/provider.route.ts
-var router7 = Router7();
+var router7 = Router8();
 router7.post("/", auth_default("PROVIDER" /* PROVIDER */), ProviderController.createProvider);
 router7.put("/", auth_default("PROVIDER" /* PROVIDER */), ProviderController.updateProvider);
 router7.get(
@@ -1790,7 +2500,7 @@ router7.get("/:id", ProviderController.getProvider);
 var ProviderRoutes = router7;
 
 // src/modules/review/review.route.ts
-import { Router as Router8 } from "express";
+import { Router as Router9 } from "express";
 
 // src/modules/review/review.service.ts
 var createReviewService = async (input, customerId) => {
@@ -1881,7 +2591,7 @@ var reviewController = {
 };
 
 // src/modules/review/review.route.ts
-var router8 = Router8();
+var router8 = Router9();
 router8.post("/", auth_default("CUSTOMER" /* CUSTOMER */), reviewController.createReview);
 router8.get("/meals/:mealId", reviewController.getMealReviews);
 var reviewRoutes = router8;
@@ -1916,6 +2626,7 @@ app.use("/api/orders", orderRouter);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", AdminRoutes);
 app.use("/api/profile", ProfileRoutes);
+app.use("/api/chat", chatRouter);
 app.get("/", (req, res) => {
   res.send("Hello, World!");
 });

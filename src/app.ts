@@ -5,6 +5,7 @@ import { auth } from "./lib/auth";
 import errorHandler from "./middlewares/globalErrorHandler";
 import { AdminRoutes } from "./modules/admin/admin.route";
 import { CategoryRoutes } from "./modules/category/category.route";
+import { chatRouter } from "./modules/chat/chat.route";
 import { ContactMessageRoutes } from "./modules/contact/contact.route";
 import { mealRouter } from "./modules/meal/meal.router";
 import { orderRouter } from "./modules/order/order.route";
@@ -57,6 +58,8 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", AdminRoutes);
 
 app.use("/api/profile", ProfileRoutes);
+
+app.use("/api/chat", chatRouter);
 
 app.get("/", (req, res) => {
   res.send("Hello, World!");

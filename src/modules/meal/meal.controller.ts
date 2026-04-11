@@ -95,10 +95,42 @@ const deleteMeal = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
+const generateDescription = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { title, keyPoints, categoryName, dietaryType } = req.body;
+
+    if (!title || typeof title !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Title is required",
+      });
+    }
+
+    const result = await mealService.generateMealDescription({
+      title,
+      keyPoints,
+      categoryName,
+      dietaryType,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const mealController = {
   createMeal,
   getAllMeals,
   getMeal,
   updateMeal,
   deleteMeal,
+  generateDescription,
 };
